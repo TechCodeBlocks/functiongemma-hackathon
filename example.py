@@ -3,9 +3,7 @@ import sys
 sys.path.insert(0, "cactus/python/src")
 functiongemma_path = "cactus/weights/functiongemma-270m-it"
 
-import json
-import os
-import time
+import json, os, time
 from cactus import cactus_init, cactus_complete, cactus_destroy
 from google import genai
 from google.genai import types
@@ -20,16 +18,25 @@ def generate_cactus(messages, tools):
         "function": t,
     } for t in tools]
 
-    raw = json.loads(cactus_complete(
+    raw_str = cactus_complete(
         model,
         [{"role": "system", "content": "You are a helpful assistant that can use tools."}] + messages,
         tools=cactus_tools,
         force_tools=True,
         max_tokens=256,
         stop_sequences=["<|im_end|>", "<end_of_turn>"],
-    ))
+    )
 
     cactus_destroy(model)
+
+    try:
+        raw = json.loads(raw_str)
+    except json.JSONDecodeError:
+        return {
+            "function_calls": [],
+            "total_time_ms": 0,
+            "confidence": 0,
+        }
 
     return {
         "function_calls": raw.get("function_calls", []),
@@ -87,7 +94,7 @@ def generate_cloud(messages, tools):
     }
 
 
-def generate_hybrid(messages, tools, confidence_threshold=0.8):
+def generate_hybrid(messages, tools, confidence_threshold=0.99):
     """Baseline hybrid inference strategy; fall back to cloud if Cactus Confidence is below threshold."""
     local = generate_cactus(messages, tools)
 
