@@ -359,6 +359,7 @@ def _normalize(v):
 
 
 def _call_matches(predicted, expected):
+    print(predicted, expected)
     """Check if a predicted call matches an expected call (name + argument values)."""
     if predicted["name"] != expected["name"]:
         return False
@@ -448,6 +449,34 @@ def run_benchmark(benchmarks=None):
     print(f"\n{'='*50}")
     print(f"  TOTAL SCORE: {score:.1f}%")
     print(f"{'='*50}")
+
+    # Failure details
+    failures = [r for r in results if r["f1"] < 1.0]
+    if failures:
+        print(f"\n--- Failures ({len(failures)}/{len(results)}) ---\n")
+        for r in failures:
+            print(f"  ✗ [{r['difficulty']}] {r['name']}  F1={r['f1']:.2f}  source={r['source']}")
+
+            exp_names  = [c["name"] for c in r["expected"]]
+            pred_names = [c["name"] for c in r["predicted"]]
+
+            # Expected calls
+            for c in r["expected"]:
+                args = ", ".join(f"{k}={v!r}" for k, v in c["arguments"].items())
+                print(f"      EXPECTED  {c['name']}({args})")
+
+            # Predicted calls (mark each as ✓ match or ✗ mismatch)
+            if r["predicted"]:
+                for c in r["predicted"]:
+                    args = ", ".join(f"{k}={v!r}" for k, v in c["arguments"].items())
+                    matched = any(_call_matches(c, e) for e in r["expected"])
+                    mark = "✓" if matched else "✗"
+                    print(f"      ACTUAL  {mark} {c['name']}({args})")
+            else:
+                print(f"      ACTUAL    (no calls returned)")
+            print()
+    else:
+        print("\n  All cases passed! ✓")
 
     return results
 
