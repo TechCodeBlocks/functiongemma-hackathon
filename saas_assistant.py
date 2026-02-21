@@ -33,11 +33,11 @@ except ImportError:
 # Add cactus path
 sys.path.insert(0, "cactus/python/src")
 try:
-    from cactus import cactus_init, cactus_transcribe, cactus_destroy
     from main import generate_hybrid
 except ImportError as e:
-    print(f"Error importing cactus or main: {e}")
+    print(f"Error importing main: {e}")
     print("Make sure you are running this from the functiongemma-hackathon root.")
+
 
 # Define SaaS Tools
 TOOLS = [
@@ -97,62 +97,15 @@ class VoiceRecordWorker(QThread):
         if not HAS_AUDIO:
             self.error_signal.emit("Audio dependencies missing.")
             return
-class VoiceRecordWorker(QThread):
-    command_ready = pyqtSignal(str)
-    error_signal = pyqtSignal(str)
-    
-    def __init__(self):
-        super().__init__()
-        self._is_running = True
-        self._recognizer = sr.Recognizer()
-        
-    def stop(self):
-        self._is_running = False
-        
-    def run(self):
-        if not HAS_AUDIO:
-            self.error_signal.emit("Audio dependencies missing.")
-            return
             
         try:
+            recognizer = sr.Recognizer()
             with sr.Microphone() as source:
-                self._recognizer.adjust_for_ambient_noise(source, duration=0.5)
-                # Listen continuously, but stop quickly if _is_running becomes False
-                audio_data = None
-                while self._is_running:
-                    try:
-                        audio_data = self._recognizer.listen(source, timeout=1, phrase_time_limit=10)
-                        break # Got audio successfully
-                    except sr.WaitTimeoutError:
-                        continue # Timeouts are expected, keep polling while running
-                        
-            if not self._is_running and audio_data is None:
-                return # Cancelled early without getting any audio
-                
-            if audio_data is None:
-                self.error_signal.emit("No speech detected.")
-                return
+                recognizer.adjust_for_ambient_noise(source, duration=0.5)
+                audio_data = recognizer.listen(source, timeout=5, phrase_time_limit=10)
 
-            # Save to temp
-            tmp_wav = tempfile.mktemp(suffix=".wav")
-            with open(tmp_wav, "wb") as f:
-                f.write(audio_data.get_wav_data())
-            
-            # Transcribe with Cactus Whisper
-            try:
-                whisper = cactus_init("cactus/weights/whisper-small")
-            except Exception:
-                # Fallback path if weights are in different structure
-                whisper = cactus_init("weights/whisper-small")
-                
-            prompt = "<|startoftranscript|><|en|><|transcribe|><|notimestamps|>"
-            result_json = cactus_transcribe(whisper, tmp_wav, prompt=prompt)
-            cactus_destroy(whisper)
-            
-            os.remove(tmp_wav)
-            
-            result = json.loads(result_json)
-            text = result.get("response", "").strip()
+            # Transcribe using Google Speech Recognition (no extra deps)
+            text = recognizer.recognize_google(audio_data).strip()
             if text:
                 self.command_ready.emit(text)
             else:
@@ -435,32 +388,19 @@ class SmartAPIAssistant(QMainWindow):
 
     def toggle_voice(self):
         if self.is_recording:
-            # Stop recording
-            self.is_recording = False
-            self.voice_worker.stop()
-            self.status_label.setText("PROCESSING AUDIO...")
-            self.append_log("<span style='color: #A0C0FF;'>[MIC]</span> Recording stopped. Transcribing...")
-            self.voice_btn.setStyleSheet("""
-                QPushButton {
-                    background-color: rgba(100, 150, 255, 0.1);
-                    color: #FFFFFF;
-                    border: 1px solid rgba(100, 150, 255, 0.5);
-                    border-radius: 28px;
-                }
-            """)
-            return
+            return  # block concurrent
             
         self.is_recording = True
         self.voice_btn.setStyleSheet("""
             QPushButton {
-                background-color: rgba(255, 50, 50, 0.5);
+                background-color: rgba(255, 50, 50, 0.3);
                 color: #FFFFFF;
-                border: 2px solid rgba(255, 50, 50, 1.0);
+                border: 1px solid rgba(255, 50, 50, 0.8);
                 border-radius: 28px;
             }
         """)
-        self.status_label.setText("LISTENING... (Click again to stop)")
-        self.append_log("<span style='color: #FF6B6B;'>[MIC]</span> Recording started. Speak now, then click the mic button again to stop.")
+        self.status_label.setText("LISTENING (5s)...")
+        self.append_log("<span style='color: #FF6B6B;'>[MIC]</span> Recording for 5 seconds...")
         
         self.voice_worker = VoiceRecordWorker()
         self.voice_worker.command_ready.connect(self.on_voice_success)
